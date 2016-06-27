@@ -1,0 +1,166 @@
+// Origional webserver code I modified to include ILI9341 Dsplay and created message box.
+// Origional can be found at https://www.hackster.io/rayburne/esp8266-01-web-server-696587.
+
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+#include <Wire.h>
+
+#include "SPI.h"
+#include "Adafruit_GFX.h"
+#include "Adafruit_ILI9340.h"
+
+
+String form_template =                                             // String form to sent to the client-browser
+  "<p>"
+  "<center>"
+  "<h1>Message Box Project</h1>"
+  "<img src='http://megaicons.net/static/img/icons_sizes/8/178/256/buzz-message-outline-icon.png'>"
+  "<form action='msg'><p>Message : <input type='text' name='msg' size=50 autofocus> <input type='submit' value='Submit'></form>"
+  "</center>";
+
+
+#define WIFI_SSDI "your_wifi_ssid"           // insert your WIFI_SSDI
+#define WIFI_PASSWORD "your_wifi_passowrd"            // insert your password
+
+// Instantiate server class                               // See tab Network for #include
+ESP8266WebServer server(80);                              // HTTP server will listen at port 80
+
+// These are the pins used for the NodeMCU
+#define _sclk D5
+#define _miso D6
+#define _mosi D7
+#define _cs   D2
+#define _dc   D1
+#define _rst  D8
+
+
+Adafruit_ILI9340 tft = Adafruit_ILI9340(_cs, _dc, _rst); 
+
+void mydelay(int ms) {
+    int i;
+    for(i=1;i!=ms;i++) {
+          delay(1);
+          if(i%20 == 0) {
+                  ESP.wdtFeed(); 
+                  yield();
+          }
+    }
+}
+
+
+void showmsgheader(void)
+{
+  
+  tft.setCursor(10, 10);
+  tft.fillScreen(ILI9340_BLACK);
+  tft.setTextColor(ILI9340_WHITE);
+  tft.setTextSize(3);
+  tft.println("Message Box");
+  char bufferstring[16];
+  sprintf(bufferstring, "%3d.%3d.%3d.%3d", WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2], WiFi.localIP()[3]);
+  tft.setTextSize(2);
+  tft.println(bufferstring);
+}
+void displaymsg(String msg)
+{
+  if(NULL == msg) return;
+
+  tft.setCursor(10, 80);
+  tft.setTextSize(2);
+  tft.println(msg);
+}
+
+/*
+  handles the messages coming from the webbrowser, restores a few special characters and
+  constructs the strings that can be sent to the oled display
+*/
+void process_input_msg() 
+{
+
+  server.send(200, "text/html", form_template);                    // Send same page so they can send another msg
+
+  // Display msg on Oled
+  String msg = server.arg("msg");
+
+  String decodedMsg = msg;
+  // Restore special characters that are misformed to %char by the client browser
+  decodedMsg.replace("+", " ");
+  decodedMsg.replace("%2C", ",");
+  decodedMsg.replace("%2F", "/");
+  decodedMsg.replace("%3A", ":");
+  decodedMsg.replace("%3B", ";");
+  decodedMsg.replace("%3C", "<");
+  decodedMsg.replace("%3D", "=");
+  decodedMsg.replace("%3E", ">");
+  decodedMsg.replace("%3F", "?");
+  decodedMsg.replace("%21", "!");
+  decodedMsg.replace("%22", "");
+  decodedMsg.replace("%23", "#");
+  decodedMsg.replace("%24", "$");
+  decodedMsg.replace("%25", "%");
+  decodedMsg.replace("%26", "&");
+  decodedMsg.replace("%27", "'");
+  decodedMsg.replace("%28", "(");
+  decodedMsg.replace("%29", ")");
+  decodedMsg.replace("%2A", "*");
+  decodedMsg.replace("%2B", "+");
+  decodedMsg.replace("%40", "@");
+
+  unsigned int lengte = decodedMsg.length();              // length of received message
+  for  (int i = 0; i < lengte; i++)                       // prints up to 8 rows of 16 characters.
+  {
+    char c = decodedMsg[i];
+    Serial.print(c);                                      //decodedMsg[i]);
+
+  }
+  Serial.println(' ');                                  // new line in monitor
+  showmsgheader();
+  displaymsg(decodedMsg);
+}
+
+void setup(void) 
+{
+  //ESP.wdtDisable();                                     // used to debug, disable wachdog timer,
+  Serial.begin(115200);                                   // full speed to monitor
+  tft.begin();
+  showmsgheader();
+  Wire.begin(0, 2);                                       // Initialize I2C and OLED Display
+  WiFi.begin(WIFI_SSDI, WIFI_PASSWORD);                                 // Connect to WiFi network
+
+  while (WiFi.status() != WL_CONNECTED) {                 // Wait for connection
+    delay(500);
+    Serial.print(".");
+  }
+
+  // Set up the endpoints for HTTP server,  Endpoints can be written as inline functions:
+  server.on("/", []()
+  {
+    server.send(200, "text/html", form_template);
+  });
+
+  server.on("/msg", process_input_msg);  // And as regular external functions:
+  server.begin();                        // Start the server
+
+  Serial.print("WIFI_SSDI : ");          // prints WIFI_SSDI in monitor
+  Serial.println(WIFI_SSDI);             // to monitor
+
+  char bufferstring[16];
+  sprintf(bufferstring, "%3d.%3d.%3d.%3d", WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2], WiFi.localIP()[3]);
+  tft.setTextSize(2);
+  tft.println(bufferstring);
+  
+
+  
+  Serial.println("WebServer ready:   ");
+  Serial.println(WiFi.localIP());                         // Serial monitor prints localIP
+  Serial.println(); 
+  Serial.println(bufferstring);
+
+}
+
+
+void loop(void) {
+  server.handleClient();                                  // checks for incoming messages
+}
+
+
